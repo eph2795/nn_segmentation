@@ -227,7 +227,72 @@ def build_UNet(n_input_channels=3, BATCH_SIZE=None, num_output_classes=2,
     return net
 
 
-# In[ ]:
+def create_predictor(weights_name):
+    input_image = T.tensor4('input')
+    target = T.matrix('output', dtype='int64')
+
+    net = build_UNet(n_input_channels=1, 
+                     BATCH_SIZE=None, 
+                     num_output_classes=2,
+                     pad='same', 
+                     nonlinearity=nonlinearity,
+                     input_dim=(patch_size, patch_size), 
+                     base_n_filters=base_n_filters, 
+                     do_dropout=True,
+                     weights=load(weights_name))
+    predictions = lasagne.layers.get_output(net['output_flattened'], input_image)
+    get_predictions = theano.function([input_image], predictions)
+    return get_predictions
 
 
+def create_model():
+    input_image = T.tensor4('input')
+    #target = T.matrix('output', dtype='int64')
+    target = T.ivector('output')
 
+    net = build_UNet(n_input_channels=input_channels, BATCH_SIZE=None, num_output_classes=n_classes,
+                     pad='same', nonlinearity=nonlinearity,
+                     input_dim=(patch_size, patch_size), 
+                     base_n_filters=base_n_filters, 
+                     do_dropout=True,
+                     weigths=load(weights_name))
+
+    predictions = lasagne.layers.get_output(net['output_flattened'], input_image)
+    get_predictions = theano.function([input_image], predictions)
+    net_weights = lasagne.layers.get_all_params(net['output_flattened'], trainable=True)
+    
+    learning_rate_t = T.scalar('learning_rate', dtype='float32')
+    alpha_t = T.scalar('alpha', dtype='float32')
+    smooth_const_t = T.scalar('smooth_const', dtype='float32')
+
+
+    #smooth_iou = (predictions[:, 1] * target / (predictions[:, 1] + target - predictions[:, 1] * target)).mean()
+    reshaped_predictions = predictions[:, 1].reshape([-1, patch_size * patch_size])
+    reshaped_target = target.reshape([-1, patch_size * patch_size])
+    intersection =  (reshaped_predictions * reshaped_target).sum(axis=[1])
+    smooth_iou = ((2 * intersection + smooth_const_t)
+        / (reshaped_predictions.sum(axis=[1]) + reshaped_target.sum(axis=[1]) + smooth_const_t)).mean()
+
+    train_loss = \
+        lasagne.objectives.categorical_crossentropy(predictions, target).mean() 
+    # \
+    # - alpha_t * T.log(smooth_iou)
+
+    log_loss = lasagne.objectives.categorical_crossentropy(predictions, target).mean()
+
+    iou_loss = smooth_iou
+
+    acc_loss = lasagne.objectives.categorical_accuracy(predictions, target).mean()
+    
+    updates = lasagne.updates.adam(train_loss, net_weights, learning_rate_t)
+    
+    train_function = theano.function(
+        [
+            input_image, 
+            target, 
+            learning_rate_t, 
+        ], train_loss, updates=updates)
+    cum_loss_function = theano.function([input_image, target], train_loss)
+    log_loss_function = theano.function([input_image, target], log_loss)
+    iou_loss_function = theano.function([input_image, target, smooth_const_t], iou_loss)
+    acc_loss_function = theano.function([input_image, target], acc_loss)t
