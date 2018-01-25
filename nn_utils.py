@@ -295,4 +295,4 @@ def create_model():
     cum_loss_function = theano.function([input_image, target], train_loss)
     log_loss_function = theano.function([input_image, target], log_loss)
     iou_loss_function = theano.function([input_image, target, smooth_const_t], iou_loss)
-    acc_loss_function = theano.function([input_image, target], acc_loss)t
+    acc_loss_function = theano.function([input_image, target], acc_loss)
